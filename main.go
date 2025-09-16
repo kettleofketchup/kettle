@@ -6,5 +6,6 @@ package main
 import "github.com/kettleofketchup/kettle/src/cmd"
 
 func main() {
+	// Set version information in cmd package
 	cmd.Execute()
 }
