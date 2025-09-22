@@ -340,7 +340,7 @@ func DownloadAndRunInstallScript(url string, filename string) error {
 	const halfSecond = 500 * time.Millisecond
 	time.Sleep(halfSecond)
 
-	cmd := fmt.Sprintf("cat %s | bash", shScriptPath)
+	cmd := fmt.Sprintf("cat %s | sh -b ~/.local/bin", shScriptPath)
 	if err := RunCmd(cmd); err != nil {
 		PrintError("Failed to run install script", err)
 		return err

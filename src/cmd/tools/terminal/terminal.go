@@ -22,6 +22,7 @@ func init() {
 	TerminalCmd.AddCommand(KittyCmd)
 	TerminalCmd.AddCommand(AutoenvCmd)
 	TerminalCmd.AddCommand(ZoxideCmd)
+	TerminalCmd.AddCommand(StarshipCmd)
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command

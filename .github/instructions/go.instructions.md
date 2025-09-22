@@ -305,6 +305,8 @@ For commands that need to modify shell configurations (like adding exports to PA
 
 3. **Inform Users**: After modifying shell profiles, always inform users that they need to restart their shell or source the profile for changes to take effect.
 
+4. **Consistent Messaging**: When using `helpers.AddLineToKettleShellProfile()`, ensure your user-facing messages reflect that modifications are being made to the kettle profile, NOT to the user's main shell profile (`.zshrc`, `.bashrc`, etc.).
+
 **Example Implementation**:
 
 ```go
@@ -314,6 +316,22 @@ if !helpers.AddLineToShellProfile("export PATH=$PATH:/usr/local/go/bin") {
     return
 }
 helpers.PrintSuccess("Go added to PATH. Please restart your shell.")
+```
+
+**Example of Correct Kettle Profile Messaging**:
+
+```go
+// CORRECT: When using AddLineToKettleShellProfile
+added := helpers.AddLineToKettleShellProfile(initLine)
+if added {
+    helpers.PrintSuccess("Added Starship initialization to kettle profile")
+    helpers.PrintInfo("Restart your shell or source your profile to activate Starship")
+} else {
+    helpers.PrintInfo("Starship initialization already present in kettle profile")
+}
+
+// INCORRECT: Don't mention .zshrc when using kettle profile functions
+helpers.PrintInfo("Add 'eval \"$(starship init zsh)\"' to your .zshrc")  // ❌ Wrong!
 ```
 
 ### File Handling and Resource Management

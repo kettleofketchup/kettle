@@ -17,7 +17,7 @@ kettle
 coverage.*
 *.coverprofile
 profile.cov
-
+*_install.sh
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
