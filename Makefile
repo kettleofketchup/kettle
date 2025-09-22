@@ -34,7 +34,7 @@ build: deps
 run: build
 	@echo "Version: $(VERSION), Commit: $(COMMIT), Date: $(DATE)"
 	@echo "Running $(BINARY_NAME)..."
-	./bin/$(BINARY_NAME)
+	./bin/$(BINARY_NAME) 
 
 # Run the application
 install: build
@@ -53,10 +53,16 @@ clean:
 
 docs:
 	@echo "Generating documentation..."
+	rm -r ./docs/cli || true
 	go run ./src/internal/tools/docgen -out ./docs/cli -format markdown
 
-lint:
+format: deps
+	@echo "Formatting code..."
+	$(GOCMD) fmt ./...
+
+lint: format
 	@echo "Linting..."
+
 	golangci-lint run
 
 

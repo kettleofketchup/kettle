@@ -14,4 +14,6 @@ var LanguagesCmd = &cobra.Command{
 func init() {
 	// Register the 'go' command as a subcommand of 'languages'
 	LanguagesCmd.AddCommand(goCmd)
+	// Register the 'node' command as a subcommand of 'languages'
+	LanguagesCmd.AddCommand(nodeCmd)
 }

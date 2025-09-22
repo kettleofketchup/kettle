@@ -1,20 +1,17 @@
 package helpers
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-
-	"github.com/charmbracelet/log"
 )
 
 type ShellInfo struct {
 	Type         string
 	ShellBinPath string
-	Path         string
+	ShellRCPath  string
 	KettlePath   string
 	KettleConfig string
 }
@@ -30,7 +27,7 @@ var (
 )
 
 // GetShellInfo returns cached shell information, determining it once
-func GetShellInfo() (ShellInfo, error) {
+func GetShellInfo() ShellInfo {
 	shellOnce.Do(func() {
 
 		shellPath := os.Getenv("SHELL")
@@ -71,12 +68,16 @@ func GetShellInfo() (ShellInfo, error) {
 		cachedShell = ShellInfo{
 			Type:         shellType,
 			ShellBinPath: shellPath,
-			Path:         shellProfilePath,
+			ShellRCPath:  shellProfilePath,
 			KettleConfig: configDir,
 			KettlePath:   kettlePath,
 		}
 	})
-	return cachedShell, shellErr
+	if shellErr != nil {
+		PrintError("failed to get shell info", shellErr)
+		panic(shellErr)
+	}
+	return cachedShell
 }
 
 // GetCurrentShell determines the name of the currently running shell by inspecting the SHELL environment variable.
@@ -88,67 +89,68 @@ func GetCurrentShell() string {
 	return filepath.Base(shellPath)
 }
 
-// GetShellProfile returns the path to the shell configuration file based on the current shell.
-// It supports bash, zsh, and fish.
+func AddToPath(newPath string) {
+	shellInfo := GetShellInfo()
+	line := fmt.Sprintf(`export PATH="%s:$PATH"`, newPath)
+	added := AddLineToKettleShellProfile(line)
+	if added {
+		PrintSuccess(fmt.Sprintf("Added %s to PATH in %s", newPath, filepath.Base(shellInfo.ShellRCPath)))
+	} else {
+		PrintInfo(fmt.Sprintf("%s already in PATH in %s", newPath, filepath.Base(shellInfo.ShellRCPath)))
+	}
+}
 
 // AddLineToShellProfile adds a given line of text to the appropriate shell profile file
 // if it does not already exist in the file.
-func AddLineToShellProfile(line string) error {
-	shellInfo, err := GetShellInfo()
-	if err != nil {
-		return fmt.Errorf("could not get shell info: %w", err)
-	}
+func AddLineToShellProfile(line string) bool {
+	shellInfo := GetShellInfo()
 
 	// Check if the line already exists in the file.
-	exists, err := ExistsInFile(shellInfo.Path, line)
+	exists, err := ExistsInFile(shellInfo.ShellRCPath, line)
 	if err != nil {
-		return fmt.Errorf("error checking shell profile: %w", err)
+		v := fmt.Errorf("error checking shell profile: %w", err)
+		PrintError("Failed to check shell profile", v)
+		panic(v)
 	}
 	if exists {
-		PrintInfo(fmt.Sprintf("Configuration already exists in %s.", filepath.Base(shellInfo.Path)))
-		return nil
+		PrintInfo(fmt.Sprintf("Configuration already exists in %s.", filepath.Base(shellInfo.ShellRCPath)))
+		return false
 	}
 
 	// If the file doesn't exist or the line isn't in it, append the line.
-	file, err := os.OpenFile(shellInfo.Path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(shellInfo.ShellRCPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("could not open shell profile for writing: %w", err)
+		v := fmt.Errorf("could not open shell profile for writing: %w", err)
+		PrintError("Failed to open shell profile for writing", v)
+		panic(v)
 	}
-	defer FileClose(file, &err)
+	defer IOClose(file, &err)
 	//defer file.Close()
 
 	if _, err := fmt.Fprintln(file, line); err != nil {
-		return fmt.Errorf("failed to write to shell profile: %w", err)
+		v := fmt.Errorf("failed to write to shell profile: %w", err)
+		PrintError("Failed to write to shell profile", v)
+		panic(v)
 	}
 
-	PrintSuccess(fmt.Sprintf("Configuration added to %s.", filepath.Base(shellInfo.Path)))
-	return nil
+	PrintSuccess(fmt.Sprintf("Configuration added to %s.", filepath.Base(shellInfo.ShellRCPath)))
+	return true
 }
 
 // ExistsInFile checks if a given string `content` exists within the file at `filePath`.
 // It reads the file line by line to avoid loading large files into memory.
+
 func ExistsInFile(filePath, content string) (bool, error) {
-	file, err := os.Open(filePath)
+
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	defer FileClose(file, &err)
 
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		if strings.Contains(scanner.Text(), content) {
-			return true, nil
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return false, err
-	}
-
-	return false, nil
+	return strings.Contains(string(data), content), nil
 }
 
 func GetKettleConfigDir() (string, error) {
@@ -168,24 +170,21 @@ func GetKettleConfigDir() (string, error) {
 }
 
 // EnsureKettleProfileSourced makes sure the main shell profile sources the kettle-specific profile.
-func EnsureKettleProfileSourced() error {
-	shellInfo, err := GetShellInfo()
-	if err != nil {
-		return err
-	}
+func EnsureKettleProfileSourced() bool {
+	shellInfo := GetShellInfo()
 
 	sourceCmd := fmt.Sprintf("source %s", shellInfo.KettlePath)
 
 	return AddLineToShellProfile(sourceCmd)
 }
-func addToFile(input string, path string) error {
+func AddToFile(input string, path string) error {
 
 	// Append the line
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("could not open kettle shell profile for writing: %w", err)
 	}
-	defer FileClose(file, &err)
+	defer IOClose(file, &err)
 
 	_, err = fmt.Fprintln(file, input)
 	if err != nil {
@@ -198,74 +197,113 @@ func addToFile(input string, path string) error {
 }
 
 // AddToProfileIfCmdExists wraps a source or a command with a check to see if the command exists before adding it.
-func AddToProfileIfCmdExists(line string, bin string) error {
-	shellInfo, err := GetShellInfo()
-	if err != nil {
-		return err
-	}
+// Returns if the line was added (true) or already existed (false).
+func AddToProfileIfCmdExists(line string, bin string) bool {
+	shellInfo := GetShellInfo()
 
-	var newValLine string
-	newValLine = fmt.Sprintf("if command -v %s >/dev/null; then\n", bin)
+	newValLine := fmt.Sprintf("if command -v %s >/dev/null; then\n", bin)
 	newValLine += fmt.Sprintf("    %s\n", line)
 	newValLine += "fi\n"
 	exists, err := ExistsInFile(shellInfo.KettlePath, line)
-	log.Debug("Checking if line exists in kettle profile:", newValLine)
 	if err != nil {
-		return err
+		PrintError("Failed to check if line exists in kettle profile", err)
+		panic(err)
 	}
 	if exists {
-		return nil
+		PrintInfo(fmt.Sprintf("%s profile already contains %q.", shellInfo.KettlePath, line))
+		return false // Line already there, do nothing.
 	}
+
 	return AddLineToKettleShellProfile(newValLine)
+
+}
+
+func GetHomeDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		e := fmt.Errorf("could not get user home directory: %w", err)
+		PrintErrors(e)
+		panic(e)
+	}
+	return homeDir
+}
+
+func GetCurrentDir() string {
+	curDir, err := os.Getwd()
+	if err != nil {
+		e := fmt.Errorf("could not get current directory: %w", err)
+		PrintErrors(e)
+		panic(e)
+	}
+	return curDir
+
 }
 
 // AddLineToKettleShellProfile adds a given line of text to the kettle-specific shell profile.
-func AddLineToKettleShellProfile(line string) error {
+func AddLineToKettleShellProfile(line string) bool {
 
-	shellInfo, err := GetShellInfo()
-	if err != nil {
-		return err
-	}
+	shellInfo := GetShellInfo()
 
 	// Check if the line already exists
-	shellExists, err := ExistsInFile(shellInfo.Path, line)
+	shellExists, err := ExistsInFile(shellInfo.ShellRCPath, line)
 	if err != nil {
-		return fmt.Errorf("error checking kettle shell profile: %w", err)
+		v := fmt.Errorf("error checking kettle shell profile: %w", err)
+		PrintErrors(v)
+		panic(v)
 	}
 
 	if shellExists {
 		PrintInfo(fmt.Sprintf("Shell profile already contains %q.", line))
-		return nil // Line already there, do nothing.
+		return false
 	}
 
 	kettleExists, err := ExistsInFile(shellInfo.KettlePath, line)
 	if err != nil {
-		return fmt.Errorf("error checking kettle shell profile: %w", err)
+		panic(fmt.Errorf("error checking kettle shell profile: %w", err))
 	}
 
 	if kettleExists {
 		PrintInfo(fmt.Sprintf("%q already contains %q.", shellInfo.KettlePath, line))
-		return nil // Line already there, do nothing.
+		return false // Line already there, do nothing.
 	}
-
-	err = addToFile(line, shellInfo.KettlePath)
+	newLine := line + "\n"
+	err = AddToFile(newLine, shellInfo.KettlePath)
 	if err != nil {
-		PrintErrors(err)
-		return fmt.Errorf("could not add line to kettle shell profile: %w", err)
+		v := fmt.Errorf("could not add line to kettle shell profile: %w", err)
+		PrintErrors(v)
+		panic(v)
 	}
 
-	return nil
+	return true
 }
 
 // EnsureCompletionsSourced adds the source command for completions to the kettle shell profile.
-func EnsureCompletionsSourced() error {
+// returns true if the line was added, false if it already existed.
+func EnsureCompletionsSourced() bool {
 	configDir, err := GetKettleConfigDir()
 	if err != nil {
-		return err
+		v := fmt.Errorf("could not get kettle config directory: %w", err)
+		PrintErrors(v)
+		panic(v)
 	}
 	shell := GetCurrentShell()
 	completionFile := filepath.Join(configDir, "completions", fmt.Sprintf("kettle.%s", shell))
 
 	sourceCmd := fmt.Sprintf("source %s", completionFile)
 	return AddLineToKettleShellProfile(sourceCmd)
+}
+
+// SourceShellProfile sources the user's shell profile to apply changes immediately.
+func SourceShellProfile() {
+	shellInfo := GetShellInfo()
+	sourceCmd := fmt.Sprintf("source %s", shellInfo.ShellRCPath)
+
+	err := RunCmd(sourceCmd)
+	if err != nil {
+		v := fmt.Errorf("could not source shell profile: %w", err)
+		PrintErrors(v)
+		panic(v)
+	}
+	PrintInfo(fmt.Sprintf("Sourced shell profile successfully (%s)", shellInfo.ShellRCPath))
+
 }
